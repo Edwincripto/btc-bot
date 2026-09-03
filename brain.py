@@ -13,6 +13,7 @@ TELEGRAM_CHAT_ID = "386048422"
 
 print(f"🤖 ТОКЕН ЗАГРУЖЕН: {TELEGRAM_TOKEN[:10]}...", flush=True)
 
+# Синхронная отправка сообщений (без asyncio)
 def send_telegram(message):
     try:
         bot = Bot(token=TELEGRAM_TOKEN)
@@ -22,9 +23,10 @@ def send_telegram(message):
         print(f"❌ Ошибка Telegram: {e}", flush=True)
 
 def get_klines():
-    # Используем бесплатный CORS-прокси для Binance
-    proxy_url = "https://corsproxy.io/?url=https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=100"
+    # Источник 1: Прокси через thingproxy (бесплатный, без авторизации)
     try:
+        print("🔄 Пробуем thingproxy...", flush=True)
+        proxy_url = "https://thingproxy.freeboard.io/fetch/https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=100"
         resp = requests.get(proxy_url, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
@@ -37,12 +39,35 @@ def get_klines():
                 df["high"] = df["high"].astype(float)
                 df["low"] = df["low"].astype(float)
                 df["volume"] = df["volume"].astype(float)
-                print(f"✅ Получено {len(candles)} свечей через прокси", flush=True)
+                print(f"✅ Получено {len(df)} свечей через thingproxy", flush=True)
                 return df
         else:
-            print(f"⚠️ Ошибка прокси: {resp.status_code}", flush=True)
+            print(f"⚠️ thingproxy ошибка: {resp.status_code}", flush=True)
     except Exception as e:
-        print(f"❌ Ошибка через прокси: {e}", flush=True)
+        print(f"❌ thingproxy не сработал: {e}", flush=True)
+
+    # Источник 2: Прямой запрос к Bybit (иногда Render пропускает)
+    try:
+        print("🔄 Пробуем Bybit напрямую...", flush=True)
+        url = "https://api.bybit.com/v5/market/kline"
+        params = {"category": "spot", "symbol": "BTCUSDT", "interval": "15", "limit": 100}
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("retCode") == 0:
+                candles = data["result"]["list"]
+                if candles:
+                    df = pd.DataFrame(candles, columns=["open", "high", "low", "close", "volume", "turnover"])
+                    df["close"] = df["close"].astype(float)
+                    df["high"] = df["high"].astype(float)
+                    df["low"] = df["low"].astype(float)
+                    df["volume"] = df["volume"].astype(float)
+                    print(f"✅ Получено {len(df)} свечей от Bybit", flush=True)
+                    return df
+    except Exception as e:
+        print(f"❌ Bybit не сработал: {e}", flush=True)
+
+    print("❌ Все источники данных недоступны", flush=True)
     return None
 
 def calculate_rsi(df, period=14):
