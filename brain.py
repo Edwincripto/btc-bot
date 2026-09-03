@@ -43,15 +43,15 @@ def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
 
 def get_signal(df):
-    # Проверяем, что данных достаточно
-    if len(df) < 3:
+    # Защита от недостатка данных
+    if len(df) < 5:
         return {
-            "price": df["close"].iloc[-1],
+            "price": df["close"].iloc[-1] if len(df) > 0 else 0,
             "rsi": 50,
-            "ema_short": df["close"].iloc[-1],
-            "ema_long": df["close"].iloc[-1],
-            "support": df["low"].iloc[-1],
-            "resistance": df["high"].iloc[-1],
+            "ema_short": df["close"].iloc[-1] if len(df) > 0 else 0,
+            "ema_long": df["close"].iloc[-1] if len(df) > 0 else 0,
+            "support": df["low"].iloc[-1] if len(df) > 0 else 0,
+            "resistance": df["high"].iloc[-1] if len(df) > 0 else 0,
             "signals": ["⚠️ Недостаточно данных для анализа"],
             "verdict": "⚪ НЕТ СИГНАЛА — жди"
         }
@@ -61,15 +61,17 @@ def get_signal(df):
     df = calculate_rsi(df)
 
     last = df.iloc[-1]
-    prev = df.iloc[-2]
+    prev = df.iloc[-2] if len(df) > 1 else last
 
     price = last["close"]
     ema_s = last["ema_short"]
     ema_l = last["ema_long"]
     rsi = last["rsi"]
 
-    recent_high = df["high"].iloc[-24:].max()
-    recent_low = df["low"].iloc[-24:].min()
+    # Безопасное вычисление уровней
+    lookback = min(24, len(df))
+    recent_high = df["high"].iloc[-lookback:].max()
+    recent_low = df["low"].iloc[-lookback:].min()
 
     buy_score = 0
     sell_score = 0
