@@ -2,40 +2,25 @@ import requests
 import pandas as pd
 import time
 from datetime import datetime
-import telegram
+from telegram import Bot
+import asyncio
 
-# =============================================
-# НАСТРОЙКИ (ПОМЕНЯЙ ТОЛЬКО ТОКЕН)
-# =============================================
-SYMBOL = "BTCUSDT"
-INTERVAL = "15m"          # 15 минут, можно 5m, 1h
-LIMIT = 100
-RSI_PERIOD = 14
-EMA_SHORT = 9
-EMA_LONG = 21
+TELEGRAM_TOKEN = "8222832200:AAF9ySyA1QEb-QLKMFk832k2CjQvtj9_4DQ"
+TELEGRAM_CHAT_ID = "386048422"
 
-# ВСТАВЬ СВОЙ ТОКЕН ОТ @BotFather (вместо "ВАШ_ТОКЕН")
-TELEGRAM_TOKEN = "@Edwincrypto_bot"        # например: "123456:ABC-DEF"
-TELEGRAM_CHAT_ID = "386648422"      # твой ID, уже вставлен
-
-RISK_PERCENT = 1.5
-MAX_POSITION = 1000
-# =============================================
-
-def send_telegram(message):
-    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        try:
-            bot = telegram.Bot(token=TELEGRAM_TOKEN)
-            bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-        except Exception as e:
-            print(f"Telegram error: {e}")
+async def send_telegram(message):
+    try:
+        bot = Bot(token=TELEGRAM_TOKEN)
+        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+        print("✅ Сообщение отправлено в Telegram")
+    except Exception as e:
+        print("❌ Ошибка Telegram:", e)
 
 def get_klines():
     url = "https://api.binance.com/api/v3/klines"
-    params = {"symbol": SYMBOL, "interval": INTERVAL, "limit": LIMIT}
+    params = {"symbol": "BTCUSDT", "interval": "15m", "limit": 100}
     resp = requests.get(url, params=params)
     data = resp.json()
-    
     df = pd.DataFrame(data, columns=[
         "time", "open", "high", "low", "close", "volume",
         "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
@@ -46,7 +31,7 @@ def get_klines():
     df["volume"] = df["volume"].astype(float)
     return df
 
-def calculate_rsi(df, period=RSI_PERIOD):
+def calculate_rsi(df, period=14):
     delta = df["close"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -58,31 +43,25 @@ def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
 
 def get_signal(df):
+    df["ema_short"] = calculate_ema(df, 9)
+    df["ema_long"] = calculate_ema(df, 21)
+    df = calculate_rsi(df)
+
     last = df.iloc[-1]
     prev = df.iloc[-2]
-    
-    df["ema_short"] = calculate_ema(df, EMA_SHORT)
-    df["ema_long"] = calculate_ema(df, EMA_LONG)
-    df = calculate_rsi(df)
-    
+
     price = last["close"]
     ema_s = last["ema_short"]
     ema_l = last["ema_long"]
     rsi = last["rsi"]
-    
+
     recent_high = df["high"].iloc[-24:].max()
     recent_low = df["low"].iloc[-24:].min()
-    
-    avg_volume = df["volume"].iloc[-20:].mean()
-    last_volume = last["volume"]
-    volume_spike = last_volume > avg_volume * 1.5
-    
-    signals = []
-    signal_type = "HOLD"
-    stop = 0
-    take = 0
-    
+
     buy_score = 0
+    sell_score = 0
+    signals = []
+
     if prev["ema_short"] <= prev["ema_long"] and ema_s > ema_l:
         buy_score += 2
         signals.append("✅ EMA9 пересекла EMA21 вверх")
@@ -92,11 +71,7 @@ def get_signal(df):
     if price <= recent_low * 1.005:
         buy_score += 1
         signals.append(f"🛡️ Цена у поддержки {recent_low:.0f}")
-    if volume_spike:
-        buy_score += 1
-        signals.append("📊 Всплеск объема")
-    
-    sell_score = 0
+
     if prev["ema_short"] >= prev["ema_long"] and ema_s < ema_l:
         sell_score += 2
         signals.append("❌ EMA9 пересекла EMA21 вниз")
@@ -106,24 +81,17 @@ def get_signal(df):
     if price >= recent_high * 0.995:
         sell_score += 1
         signals.append(f"🔴 Цена у сопротивления {recent_high:.0f}")
-    
+
+    verdict = "⚪ НЕТ СИГНАЛА — жди"
     if buy_score >= 3:
-        signal_type = "BUY"
         stop = price - (price - recent_low) * 0.7
         take = price + (recent_high - price) * 0.6
-        if take > recent_high:
-            take = recent_high * 0.995
-        verdict = f"🟢 ПОКУПКА\nВход: {price:.0f}\nСтоп: {stop:.0f}\nТейк: {take:.0f}\nРиск: {(price-stop)/price*100:.2f}%"
+        verdict = f"🟢 ПОКУПКА\nВход: {price:.0f}\nСтоп: {stop:.0f}\nТейк: {take:.0f}"
     elif sell_score >= 3:
-        signal_type = "SELL"
         stop = price + (recent_high - price) * 0.7
         take = price - (price - recent_low) * 0.6
-        if take < recent_low:
-            take = recent_low * 1.005
-        verdict = f"🔴 ПРОДАЖА (шорт)\nВход: {price:.0f}\nСтоп: {stop:.0f}\nТейк: {take:.0f}\nРиск: {(stop-price)/price*100:.2f}%"
-    else:
-        verdict = "⚪ НЕТ СИГНАЛА — жди"
-    
+        verdict = f"🔴 ПРОДАЖА\nВход: {price:.0f}\nСтоп: {stop:.0f}\nТейк: {take:.0f}"
+
     return {
         "price": price,
         "rsi": rsi,
@@ -131,17 +99,13 @@ def get_signal(df):
         "ema_long": ema_l,
         "support": recent_low,
         "resistance": recent_high,
-        "volume_spike": volume_spike,
         "signals": signals,
         "verdict": verdict,
-        "signal_type": signal_type,
-        "stop": stop,
-        "take": take
     }
 
 def format_message(result):
     lines = []
-    lines.append(f"🤖 BTC/USDT | {INTERVAL}")
+    lines.append(f"🤖 BTC/USDT | 15m")
     lines.append(f"⏰ {datetime.now().strftime('%H:%M:%S')}")
     lines.append("─" * 30)
     lines.append(f"💰 Цена: {result['price']:.0f}")
@@ -166,15 +130,15 @@ def main():
         msg = format_message(result)
         print(msg)
         print("=" * 50)
-        send_telegram(msg)
+        asyncio.run(send_telegram(msg))
     except Exception as e:
         error_msg = f"❌ Ошибка: {e}"
         print(error_msg)
-        send_telegram(error_msg)
+        asyncio.run(send_telegram(error_msg))
 
 if __name__ == "__main__":
-    print("🤖 МОЗГ ЗАПУЩЕН! Ожидаю сигналы...")
-    send_telegram("✅ Бот подключен! Жду сигналы...")
+    print("🤖 ТОРГОВЫЙ МОЗГ ЗАПУЩЕН!")
+    asyncio.run(send_telegram("✅ Торговый бот запущен и анализирует рынок!"))
     print("Нажми Ctrl+C для остановки")
     print("=" * 50)
     while True:
