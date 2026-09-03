@@ -4,7 +4,6 @@ import pandas as pd
 import time
 from datetime import datetime
 from telegram import Bot
-import asyncio
 
 print("🚀 СКРИПТ ЗАПУЩЕН", flush=True)
 sys.stdout.flush()
@@ -14,27 +13,22 @@ TELEGRAM_CHAT_ID = "386048422"
 
 print(f"🤖 ТОКЕН ЗАГРУЖЕН: {TELEGRAM_TOKEN[:10]}...", flush=True)
 
-async def send_telegram(message):
+def send_telegram(message):
     try:
         bot = Bot(token=TELEGRAM_TOKEN)
-        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
         print("✅ Сообщение отправлено в Telegram", flush=True)
     except Exception as e:
         print(f"❌ Ошибка Telegram: {e}", flush=True)
 
 def get_klines():
-    # Используем CoinCap API (бесплатный, не блокируется)
     url = "https://api.coincap.io/v2/assets/bitcoin/history"
-    params = {
-        "interval": "m15",
-        "limit": 100
-    }
+    params = {"interval": "m15", "limit": 100}
     try:
         resp = requests.get(url, params=params, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             if data.get("data"):
-                # Переворачиваем данные, чтобы сначала шли старые, потом новые
                 candles = data["data"][::-1]
                 if candles:
                     df = pd.DataFrame(candles)
@@ -44,34 +38,8 @@ def get_klines():
                     df["volume"] = df["volume"].astype(float)
                     print(f"✅ Получено {len(candles)} свечей от CoinCap", flush=True)
                     return df
-        else:
-            print(f"⚠️ Ошибка {resp.status_code} от CoinCap", flush=True)
     except Exception as e:
         print(f"❌ Ошибка подключения к CoinCap: {e}", flush=True)
-
-    # Если CoinCap не сработал — пробуем Binance через публичный прокси без авторизации
-    try:
-        print("🔄 Пробуем Binance через прокси...", flush=True)
-        proxy_url = "https://cors-anywhere.herokuapp.com/https://api.binance.com/api/v3/klines"
-        params = {"symbol": "BTCUSDT", "interval": "15m", "limit": 100}
-        resp = requests.get(proxy_url, params=params, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data and len(data) > 0:
-                df = pd.DataFrame(data, columns=[
-                    "time", "open", "high", "low", "close", "volume",
-                    "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
-                ])
-                df["close"] = df["close"].astype(float)
-                df["high"] = df["high"].astype(float)
-                df["low"] = df["low"].astype(float)
-                df["volume"] = df["volume"].astype(float)
-                print("✅ Данные получены через прокси Binance", flush=True)
-                return df
-    except Exception as e:
-        print(f"❌ Ошибка с прокси Binance: {e}", flush=True)
-
-    print("❌ Все источники данных недоступны", flush=True)
     return None
 
 def calculate_rsi(df, period=14):
@@ -176,15 +144,15 @@ def main():
         result = get_signal(df)
         msg = format_message(result)
         print(msg, flush=True)
-        asyncio.run(send_telegram(msg))
+        send_telegram(msg)
     except Exception as e:
         error_msg = f"❌ Ошибка: {e}"
         print(error_msg, flush=True)
-        asyncio.run(send_telegram(error_msg))
+        send_telegram(error_msg)
 
 if __name__ == "__main__":
     print("🤖 ТОРГОВЫЙ МОЗГ ЗАПУЩЕН!", flush=True)
-    asyncio.run(send_telegram("✅ Торговый бот запущен и анализирует рынок!"))
+    send_telegram("✅ Торговый бот запущен и анализирует рынок!")
     print("Нажми Ctrl+C для остановки", flush=True)
     print("=" * 50, flush=True)
     while True:
