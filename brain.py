@@ -22,24 +22,27 @@ def send_telegram(message):
         print(f"❌ Ошибка Telegram: {e}", flush=True)
 
 def get_klines():
-    url = "https://api.coincap.io/v2/assets/bitcoin/history"
-    params = {"interval": "m15", "limit": 100}
+    # Используем бесплатный CORS-прокси для Binance
+    proxy_url = "https://corsproxy.io/?url=https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=100"
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(proxy_url, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
-            if data.get("data"):
-                candles = data["data"][::-1]
-                if candles:
-                    df = pd.DataFrame(candles)
-                    df["close"] = df["priceUsd"].astype(float)
-                    df["high"] = df["priceUsd"].astype(float)
-                    df["low"] = df["priceUsd"].astype(float)
-                    df["volume"] = df["volume"].astype(float)
-                    print(f"✅ Получено {len(candles)} свечей от CoinCap", flush=True)
-                    return df
+            if data and len(data) > 0:
+                df = pd.DataFrame(data, columns=[
+                    "time", "open", "high", "low", "close", "volume",
+                    "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
+                ])
+                df["close"] = df["close"].astype(float)
+                df["high"] = df["high"].astype(float)
+                df["low"] = df["low"].astype(float)
+                df["volume"] = df["volume"].astype(float)
+                print(f"✅ Получено {len(candles)} свечей через прокси", flush=True)
+                return df
+        else:
+            print(f"⚠️ Ошибка прокси: {resp.status_code}", flush=True)
     except Exception as e:
-        print(f"❌ Ошибка подключения к CoinCap: {e}", flush=True)
+        print(f"❌ Ошибка через прокси: {e}", flush=True)
     return None
 
 def calculate_rsi(df, period=14):
