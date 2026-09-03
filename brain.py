@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from telegram import Bot
 import asyncio
-import json
 
 print("🚀 СКРИПТ ЗАПУЩЕН", flush=True)
 sys.stdout.flush()
@@ -24,66 +23,54 @@ async def send_telegram(message):
         print(f"❌ Ошибка Telegram: {e}", flush=True)
 
 def get_klines():
-    sources = [
-        # Попытка 1: Binance через зеркало
-        {
-            "url": "https://api1.binance.com/api/v3/klines",
-            "params": {"symbol": "BTCUSDT", "interval": "15m", "limit": 100}
-        },
-        # Попытка 2: Bybit
-        {
-            "url": "https://api.bybit.com/v5/market/kline",
-            "params": {"category": "spot", "symbol": "BTCUSDT", "interval": "15", "limit": 100}
-        },
-        # Попытка 3: Прокси-сервис (если всё заблокировано)
-        {
-            "url": "https://api.binance.com/api/v3/klines",
-            "params": {"symbol": "BTCUSDT", "interval": "15m", "limit": 100},
-            "proxies": {"http": "http://proxy.packetstream.io:31112", "https": "http://proxy.packetstream.io:31112"}
-        }
-    ]
-
-    for attempt, source in enumerate(sources, 1):
-        try:
-            print(f"🔄 Попытка {attempt}...", flush=True)
-            proxies = source.get("proxies", None)
-            resp = requests.get(source["url"], params=source["params"], timeout=10, proxies=proxies)
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                
-                # Если данные пришли
-                if data and isinstance(data, list) and len(data) > 0:
-                    df = pd.DataFrame(data, columns=[
-                        "time", "open", "high", "low", "close", "volume",
-                        "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
-                    ])
-                    df["close"] = df["close"].astype(float)
-                    df["high"] = df["high"].astype(float)
-                    df["low"] = df["low"].astype(float)
+    # Используем CoinCap API (бесплатный, не блокируется)
+    url = "https://api.coincap.io/v2/assets/bitcoin/history"
+    params = {
+        "interval": "m15",
+        "limit": 100
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("data"):
+                # Переворачиваем данные, чтобы сначала шли старые, потом новые
+                candles = data["data"][::-1]
+                if candles:
+                    df = pd.DataFrame(candles)
+                    df["close"] = df["priceUsd"].astype(float)
+                    df["high"] = df["priceUsd"].astype(float)
+                    df["low"] = df["priceUsd"].astype(float)
                     df["volume"] = df["volume"].astype(float)
-                    print(f"✅ Данные получены (источник {attempt})", flush=True)
+                    print(f"✅ Получено {len(candles)} свечей от CoinCap", flush=True)
                     return df
-                
-                # Если данные пришли в формате Bybit
-                if isinstance(data, dict) and data.get("retCode") == 0:
-                    candles = data["result"]["list"]
-                    if candles:
-                        df = pd.DataFrame(candles, columns=["open", "high", "low", "close", "volume", "turnover"])
-                        df["close"] = df["close"].astype(float)
-                        df["high"] = df["high"].astype(float)
-                        df["low"] = df["low"].astype(float)
-                        df["volume"] = df["volume"].astype(float)
-                        print(f"✅ Данные получены от Bybit", flush=True)
-                        return df
-                        
-            else:
-                print(f"⚠️ Ошибка {resp.status_code} от источника {attempt}", flush=True)
-                
-        except Exception as e:
-            print(f"⚠️ Не удалось подключиться к источнику {attempt}: {e}", flush=True)
-            continue
-    
+        else:
+            print(f"⚠️ Ошибка {resp.status_code} от CoinCap", flush=True)
+    except Exception as e:
+        print(f"❌ Ошибка подключения к CoinCap: {e}", flush=True)
+
+    # Если CoinCap не сработал — пробуем Binance через публичный прокси без авторизации
+    try:
+        print("🔄 Пробуем Binance через прокси...", flush=True)
+        proxy_url = "https://cors-anywhere.herokuapp.com/https://api.binance.com/api/v3/klines"
+        params = {"symbol": "BTCUSDT", "interval": "15m", "limit": 100}
+        resp = requests.get(proxy_url, params=params, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data and len(data) > 0:
+                df = pd.DataFrame(data, columns=[
+                    "time", "open", "high", "low", "close", "volume",
+                    "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
+                ])
+                df["close"] = df["close"].astype(float)
+                df["high"] = df["high"].astype(float)
+                df["low"] = df["low"].astype(float)
+                df["volume"] = df["volume"].astype(float)
+                print("✅ Данные получены через прокси Binance", flush=True)
+                return df
+    except Exception as e:
+        print(f"❌ Ошибка с прокси Binance: {e}", flush=True)
+
     print("❌ Все источники данных недоступны", flush=True)
     return None
 
