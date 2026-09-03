@@ -23,36 +23,40 @@ async def send_telegram(message):
         print(f"❌ Ошибка Telegram: {e}", flush=True)
 
 def get_klines():
-    # Используем зеркало Binance с повышенной защитой
-    urls = [
-        "https://api1.binance.com/api/v3/klines",
-        "https://api2.binance.com/api/v3/klines",
-        "https://api3.binance.com/api/v3/klines"
-    ]
-    params = {"symbol": "BTCUSDT", "interval": "15m", "limit": 100}
-    for url in urls:
-        try:
-            resp = requests.get(url, params=params, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                if data:
-                    print(f"✅ Данные получены с {url}", flush=True)
-                    df = pd.DataFrame(data, columns=[
-                        "time", "open", "high", "low", "close", "volume",
-                        "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
-                    ])
+    # Используем публичный API Bybit (без ключа)
+    url = "https://api.bybit.com/v5/market/kline"
+    params = {
+        "category": "spot",
+        "symbol": "BTCUSDT",
+        "interval": "15",
+        "limit": 100
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("retCode") == 0:
+                candles = data["result"]["list"]
+                if candles:
+                    print(f"✅ Получено {len(candles)} свечей от Bybit", flush=True)
+                    df = pd.DataFrame(candles, columns=["open", "high", "low", "close", "volume", "turnover"])
                     df["close"] = df["close"].astype(float)
                     df["high"] = df["high"].astype(float)
                     df["low"] = df["low"].astype(float)
                     df["volume"] = df["volume"].astype(float)
                     return df
+                else:
+                    print("⚠️ Bybit вернул пустые данные", flush=True)
+                    return None
             else:
-                print(f"⚠️ Ошибка {resp.status_code} от {url}, пробуем следующий...", flush=True)
-        except Exception as e:
-            print(f"⚠️ Не удалось подключиться к {url}: {e}", flush=True)
-            continue
-    print("❌ Все источники данных недоступны", flush=True)
-    return None
+                print(f"⚠️ Ошибка Bybit: {data.get('retMsg')}", flush=True)
+                return None
+        else:
+            print(f"⚠️ HTTP ошибка {resp.status_code} от Bybit", flush=True)
+            return None
+    except Exception as e:
+        print(f"❌ Ошибка подключения к Bybit: {e}", flush=True)
+        return None
 
 def calculate_rsi(df, period=14):
     delta = df["close"].diff()
