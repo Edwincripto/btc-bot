@@ -43,6 +43,19 @@ def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
 
 def get_signal(df):
+    # Проверяем, что данных достаточно
+    if len(df) < 3:
+        return {
+            "price": df["close"].iloc[-1],
+            "rsi": 50,
+            "ema_short": df["close"].iloc[-1],
+            "ema_long": df["close"].iloc[-1],
+            "support": df["low"].iloc[-1],
+            "resistance": df["high"].iloc[-1],
+            "signals": ["⚠️ Недостаточно данных для анализа"],
+            "verdict": "⚪ НЕТ СИГНАЛА — жди"
+        }
+
     df["ema_short"] = calculate_ema(df, 9)
     df["ema_long"] = calculate_ema(df, 21)
     df = calculate_rsi(df)
