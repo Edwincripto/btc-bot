@@ -6,7 +6,6 @@ from datetime import datetime
 from telegram import Bot
 import asyncio
 
-# Принудительный вывод в логи
 print("🚀 СКРИПТ ЗАПУЩЕН", flush=True)
 sys.stdout.flush()
 
@@ -24,27 +23,36 @@ async def send_telegram(message):
         print(f"❌ Ошибка Telegram: {e}", flush=True)
 
 def get_klines():
-    url = "https://api.binance.com/api/v3/klines"
+    # Используем зеркало Binance с повышенной защитой
+    urls = [
+        "https://api1.binance.com/api/v3/klines",
+        "https://api2.binance.com/api/v3/klines",
+        "https://api3.binance.com/api/v3/klines"
+    ]
     params = {"symbol": "BTCUSDT", "interval": "15m", "limit": 100}
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        print(f"📊 Получено {len(data)} свечей", flush=True)
-        if not data:
-            return None
-        df = pd.DataFrame(data, columns=[
-            "time", "open", "high", "low", "close", "volume",
-            "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
-        ])
-        df["close"] = df["close"].astype(float)
-        df["high"] = df["high"].astype(float)
-        df["low"] = df["low"].astype(float)
-        df["volume"] = df["volume"].astype(float)
-        return df
-    except Exception as e:
-        print(f"❌ Ошибка получения данных: {e}", flush=True)
-        return None
+    for url in urls:
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data:
+                    print(f"✅ Данные получены с {url}", flush=True)
+                    df = pd.DataFrame(data, columns=[
+                        "time", "open", "high", "low", "close", "volume",
+                        "close_time", "quote_volume", "trades", "taker_base", "taker_quote", "ignore"
+                    ])
+                    df["close"] = df["close"].astype(float)
+                    df["high"] = df["high"].astype(float)
+                    df["low"] = df["low"].astype(float)
+                    df["volume"] = df["volume"].astype(float)
+                    return df
+            else:
+                print(f"⚠️ Ошибка {resp.status_code} от {url}, пробуем следующий...", flush=True)
+        except Exception as e:
+            print(f"⚠️ Не удалось подключиться к {url}: {e}", flush=True)
+            continue
+    print("❌ Все источники данных недоступны", flush=True)
+    return None
 
 def calculate_rsi(df, period=14):
     delta = df["close"].diff()
